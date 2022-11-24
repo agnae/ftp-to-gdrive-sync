@@ -17,6 +17,8 @@ internal class Program
     private static Google.Apis.Drive.v3.Data.File _rootFolder;
     private static List<ConfirmedFileUpload> _confirmedFileUploads;
     private static AppSettings _appSettings;
+    private static SemaphoreSlim _folderSemaphore = new SemaphoreSlim(1,1);
+    private static SemaphoreSlim _confirmationsSemaphore = new SemaphoreSlim(1,1);
 
     private static void Main(string[] args)
     {
@@ -179,39 +181,47 @@ internal class Program
             }
 
             Task.WaitAll(uploads.ToArray());
-            await PersistConfirmedUploads();
-
         } while (countFilesAttempted != 0);
     }
 
     private static async Task<Google.Apis.Drive.v3.Data.File> GetOrCreateFolder(string folderName, string parentId = "")
     {
-        var listFoldersRequest = _driveService.Files.List();
-        listFoldersRequest.Q = "mimeType = 'application/vnd.google-apps.folder' and trashed != true";
+        Google.Apis.Drive.v3.Data.File folder = null;
 
-        if (!string.IsNullOrWhiteSpace(parentId))
+        await _folderSemaphore.WaitAsync();
+        try
         {
-            listFoldersRequest.Q += $" and '{parentId}' in parents";
-        }
-
-        var result = await listFoldersRequest.ExecuteAsync();
-        var folder = result.Files.FirstOrDefault(f => f.Name == folderName);
-
-        if (folder == null)
-        {
-            var fileMetadata = new Google.Apis.Drive.v3.Data.File()
-            {
-                Name = folderName,
-                MimeType = "application/vnd.google-apps.folder",
-            };
+            var listFoldersRequest = _driveService.Files.List();
+            listFoldersRequest.Q = "mimeType = 'application/vnd.google-apps.folder' and trashed != true";
 
             if (!string.IsNullOrWhiteSpace(parentId))
             {
-                fileMetadata.Parents = new[] { parentId };
+                listFoldersRequest.Q += $" and '{parentId}' in parents";
             }
 
-            var request = _driveService.Files.Create(fileMetadata);
-            folder = await request.ExecuteAsync();
+            var result = await listFoldersRequest.ExecuteAsync();
+            folder = result.Files.FirstOrDefault(f => f.Name == folderName);
+
+            if (folder == null)
+            {
+                var fileMetadata = new Google.Apis.Drive.v3.Data.File()
+                {
+                    Name = folderName,
+                    MimeType = "application/vnd.google-apps.folder",
+                };
+
+                if (!string.IsNullOrWhiteSpace(parentId))
+                {
+                    fileMetadata.Parents = new[] { parentId };
+                }
+
+                var request = _driveService.Files.Create(fileMetadata);
+                folder = await request.ExecuteAsync();
+            }
+        }
+        finally
+        {
+            _folderSemaphore.Release();
         }
 
         return folder;
@@ -326,9 +336,18 @@ internal class Program
         return result;
     }
 
-    private static void AddConfirmedUpload(ConfirmedFileUpload confirmedFileUpload)
+    private static async void AddConfirmedUpload(ConfirmedFileUpload confirmedFileUpload)
     {
-        _confirmedFileUploads.Add(confirmedFileUpload);
+        await _confirmationsSemaphore.WaitAsync();
+        try
+        {
+            _confirmedFileUploads.Add(confirmedFileUpload);
+            await PersistConfirmedUploads();
+        }
+        finally
+        {
+            _confirmationsSemaphore.Release();
+        }
     }
 
     private static async Task<IUploadProgress> PersistConfirmedUploads()
