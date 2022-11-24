@@ -17,22 +17,19 @@ namespace ftp_to_gdrive_sync.Types
         public Slack Slack { get; set; }
         public string ApplicationName { get; set; }
         public string DownloadPath { get; set; }
-        public bool LogProgressToSlack { get; set; }
-        public string RootFolder { get; set; }
     }
 
     internal class FtpSource
     {
         public string Host { get; set; }
-
         public string[] Folders { get; set; }
     }
 
     internal class GDrive
     {
         public string ClientSecretsPath { get; set; }
-
         public string TokenDataStorePath { get; set; }
+        public string RootFolder { get; set; }
     }
 
     internal class Slack

@@ -17,8 +17,9 @@ internal class Program
     private static Google.Apis.Drive.v3.Data.File _rootFolder;
     private static List<ConfirmedFileUpload> _confirmedFileUploads;
     private static AppSettings _appSettings;
-    private static SemaphoreSlim _folderSemaphore = new SemaphoreSlim(1,1);
-    private static SemaphoreSlim _confirmationsSemaphore = new SemaphoreSlim(1,1);
+    private static SemaphoreSlim _folderSemaphore = new SemaphoreSlim(1, 1);
+    private static SemaphoreSlim _confirmationsSemaphore = new SemaphoreSlim(1, 1);
+    private static List<Task<bool>> _slackMessageTasks = new List<Task<bool>>();
 
     private static void Main(string[] args)
     {
@@ -47,7 +48,7 @@ internal class Program
             }
         }
 
-        SendSlackMessageNonBlocking("🤖 starting...");
+        LogMessage("🤖 starting...");
 
         try
         {
@@ -55,13 +56,10 @@ internal class Program
         }
         catch (Exception e)
         {
-            Task.Run(async () => await SendSlackMessageAsync($"🤖 exception! {e.Message}")).GetAwaiter().GetResult();
-#pragma warning disable CA2200
-            throw e;
-#pragma warning disable CA2200
+            LogMessage($"🤖 exception! {e.Message}");
         }
 
-        Task.Run(async () => await SendSlackMessageAsync("🤖 exiting...")).GetAwaiter().GetResult();
+        LogMessage("🤖 exiting...");
     }
 
     private static async Task Run(bool authOnly, CancellationToken ct)
@@ -91,7 +89,7 @@ internal class Program
 
         var uploads = new List<Task<IUploadProgress>>();
 
-        _rootFolder = await GetOrCreateFolder(_appSettings.RootFolder);
+        _rootFolder = await GetOrCreateFolder(_appSettings.GDrive.RootFolder);
 
         var countFilesAttempted = 0;
         do
@@ -143,7 +141,7 @@ internal class Program
                             // download if file does not exist
                             if (!System.IO.File.Exists(targetPath))
                             {
-                                SendSlackMessageNonBlocking($"{item.Name}: starting download");
+                                LogMessage($"{item.Name}: starting download");
 
                                 var downloadStatus = ftpClient.DownloadFile(targetPath, sourcePath);
                                 if (downloadStatus == FtpStatus.Success)
@@ -154,12 +152,12 @@ internal class Program
                                 }
                                 else
                                 {
-                                    SendSlackMessageNonBlocking($"{item.Name}: ftp status: {downloadStatus}");
+                                    LogMessage($"{item.Name}: ftp status: {downloadStatus}");
                                 }
                             }
                             else if (new System.IO.FileInfo(targetPath).Length != size) // ... or if filesize is mismatched between local and ftp:/
                             {
-                                SendSlackMessageNonBlocking($"{item.Name}: redownloading due to mismatch in filesizes. Remote: {size}bytes, Local: {new System.IO.FileInfo(targetPath).Length}bytes");
+                                LogMessage($"{item.Name}: redownloading due to mismatch in filesizes. Remote: {size}bytes, Local: {new System.IO.FileInfo(targetPath).Length}bytes");
 
                                 var downloadStatus = ftpClient.DownloadFile(targetPath, sourcePath);
                                 if (downloadStatus == FtpStatus.Success)
@@ -168,7 +166,7 @@ internal class Program
                                 }
                                 else
                                 {
-                                    SendSlackMessageNonBlocking($"{item.Name}: ftp status: {downloadStatus}");
+                                    LogMessage($"{item.Name}: ftp status: {downloadStatus}");
                                 }
                             }
                             else
@@ -254,7 +252,7 @@ internal class Program
         {
             if (!verifyOnly)
             {
-                SendSlackMessageNonBlocking($"{fileName}: starting upload");
+                LogMessage($"{fileName}: starting upload");
                 var uploadTask = await uploadRequest.UploadAsync();
                 if (uploadTask.Status == UploadStatus.Completed)
                 {
@@ -268,7 +266,7 @@ internal class Program
         {
             if (!verifyOnly)
             {
-                SendSlackMessageNonBlocking($"{fileName}: reuploading due to hash mismatch. Remote: {uploadedFile.Sha256Checksum}, Local: {hash}");
+                Console.WriteLine($"{fileName}: reuploading due to hash mismatch. Remote: {uploadedFile.Sha256Checksum}, Local: {hash}");
 
                 var uploadTask = await uploadRequest.UploadAsync();
                 if (uploadTask.Status == UploadStatus.Completed)
@@ -291,7 +289,7 @@ internal class Program
                 Hash = uploadedFile.Sha256Checksum
             });
 
-            SendSlackMessageNonBlocking($"<{uploadedFile.WebViewLink}|{fileName}>: upload completed", true);
+            SendSlackMessage($"<{uploadedFile.WebViewLink}|{fileName}>: upload completed");
         }
 
         return null;
@@ -374,18 +372,14 @@ internal class Program
         }
     }
 
-    private static void SendSlackMessageNonBlocking(string message, bool force = false)
-    {
-#pragma warning disable CS4014
-        SendSlackMessageAsync(message, force);
-#pragma warning restore CS4014
-    }
-
-    private static async Task SendSlackMessageAsync(string message, bool force = false)
+    private static void LogMessage(string message)
     {
         Console.WriteLine(message);
+    }
 
-        if (!_appSettings.LogProgressToSlack && !force)
+    private static void SendSlackMessage(string message)
+    {
+        if (string.IsNullOrWhiteSpace(_appSettings.Slack.WebhookUrl))
         {
             return;
         }
@@ -396,6 +390,7 @@ internal class Program
             Text = message,
             Markdown = true,
         };
-        await slackClient.PostAsync(slackMessage);
+
+        _slackMessageTasks.Add(slackClient.PostAsync(slackMessage));
     }
 }
