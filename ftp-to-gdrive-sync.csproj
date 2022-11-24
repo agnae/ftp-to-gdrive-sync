@@ -5,7 +5,23 @@
     <TargetFramework>net6.0</TargetFramework>
     <RootNamespace>ftp_to_gdrive_sync</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
+    <Nullable>disable</Nullable>
+    <RuntimeIdentifiers>linux-x64;linux-arm;osx-x64;win-x64</RuntimeIdentifiers>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="FluentFTP" Version="42.0.2" />
+    <PackageReference Include="Google.Apis.Drive.v3" Version="1.57.0.2859" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="7.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="7.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="7.0.0" />
+    <PackageReference Include="MimeTypeMapOfficial" Version="1.0.17" />
+    <PackageReference Include="Slack.Webhooks" Version="1.1.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="appsettings.example.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>
