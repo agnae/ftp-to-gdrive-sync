@@ -1,0 +1,66 @@
+# https://github.com/patriksvensson/dotnet-release-artifacts/blob/master/.github/workflows/ci.yaml
+name: Publish
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  release:
+    name: Release
+    strategy:
+      matrix:
+        kind: ['linux', 'linux_arm', 'macOS', 'windows']
+        include:
+          - kind: linux
+            os: ubuntu-latest
+            target: linux-x64
+          - kind: linux_arm
+            os: ubuntu-latest
+            target: linux-arm
+          - kind: macOS
+            os: ubuntu-latest
+            target: osx-x64
+          - kind: windows
+            os: ubuntu-latest
+            target: win-x64
+         
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup dotnet
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: 6.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore
+        
+      - name: Build
+        shell: bash
+        run: |
+          tag=$(git describe --tags --abbrev=0)
+          release_name="${{ github.event.repository.name }}-$tag-${{ matrix.target }}"
+
+          # Build everything
+          dotnet publish -c release -r "${{ matrix.target }}" --self-contained -o "$release_name"
+
+          # Pack files
+          if [ "${{ matrix.target }}" == "win-x64" ]; then
+            # Pack to zip for Windows
+            7z a -tzip "${release_name}.zip" "./${release_name}/*"
+          else
+            tar czvf "${release_name}.tar.gz" "$release_name"
+          fi
+
+          # Delete output directory
+          rm -r "$release_name"
+
+      - name: Publish
+        uses: softprops/action-gh-release@v1
+        with:
+          files: "${{ github.event.repository.name }}-*"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
