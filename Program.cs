@@ -419,6 +419,8 @@ internal class Program
             return;
         }
 
+        Log.Information(message);
+
         var slackClient = new SlackClient(_appSettings.Slack.WebhookUrl);
         var slackMessage = new SlackMessage
         {
