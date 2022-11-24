@@ -21,6 +21,7 @@ namespace ftp_to_gdrive_sync.Types
         public GraylogSinkOptions Graylog { get; set; }
         public string ApplicationName { get; set; }
         public string DownloadPath { get; set; }
+        public bool IgnoreDotFiles { get; set; }
     }
 
     internal class FtpSource

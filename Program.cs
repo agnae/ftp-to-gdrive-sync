@@ -150,6 +150,11 @@ internal class Program
                         if (item.Type == FtpObjectType.File)
                         {
                             size = ftpClient.GetFileSize(item.FullName);
+
+                            if (_appSettings.IgnoreDotFiles && item.Name.StartsWith('.'))
+                            {
+                                continue;
+                            }
                         }
 
                         if (size > 0)
