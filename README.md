@@ -1,7 +1,7 @@
 # ftp-to-gdrive-sync
 Download files from an FTP source (anonymous) and upload to Google Drive. w/ Slack notification when completed
 
-
+![ftp2gdrive](https://user-images.githubusercontent.com/4912057/203706764-97c0bc68-6f4c-431f-8874-e149a7c3e99f.png)
 
 ## Usage
  1. Obtain `client_secrets.json` from Google Drive API
@@ -35,3 +35,8 @@ Running `./ftp-to-gdrive-sync auth` will open up a browser with to begin the oat
 
 #### Subsequent runs
 Run `./ftp-to-gdrive-sync` with no args. If authentication was not previously performed, oauth flow will begin and program will continue running as normal
+
+
+##### Image Licenses
+<sub>https://elements.envato.com/15-google-product-icons-B7T9F8 `UH364MGVZL`</sub>  
+<sub>https://elements.envato.com/75-computer-science-icons-AMYLEVV `NRSAMQ9WHC`</sub>  
