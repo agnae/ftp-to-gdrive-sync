@@ -83,7 +83,7 @@ internal class Program
         }
 
         Log.Information("🤖 starting...");
-        
+
         try
         {
             Task.Run(async () => await Run(authOnly, cts.Token)).GetAwaiter().GetResult();
