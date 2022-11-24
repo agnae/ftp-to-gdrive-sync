@@ -10,6 +10,7 @@ using System.Text.Json;
 using Slack.Webhooks;
 using Microsoft.Extensions.Configuration;
 using ftp_to_gdrive_sync.Types;
+using Sentry;
 
 internal class Program
 {
@@ -31,10 +32,27 @@ internal class Program
         _appSettings = new AppSettings();
         configuration.Bind(_appSettings);
 
+        IDisposable sentryDisposable = null;
+        if (!string.IsNullOrWhiteSpace(_appSettings.Sentry.Dsn))
+        {
+            sentryDisposable = SentrySdk.Init(o =>
+                       {
+                           o.Dsn = _appSettings.Sentry.Dsn;
+                           // When configuring for the first time, to see what the SDK is doing:
+                           o.Debug = false;
+                           // Set traces_sample_rate to 1.0 to capture 100% of transactions for performance monitoring.
+                           // We recommend adjusting this value in production.
+                           o.TracesSampleRate = 1.0;
+                           // Enable Global Mode if running in a client app
+                           o.IsGlobalModeEnabled = true;
+                       });
+        }
+
+
         CancellationTokenSource cts = new CancellationTokenSource();
         Console.CancelKeyPress += (s, e) =>
         {
-            Console.WriteLine("Canceling...");
+            LogMessage("Canceling...");
             cts.Cancel();
             e.Cancel = true;
         };
@@ -56,10 +74,11 @@ internal class Program
         }
         catch (Exception e)
         {
-            LogMessage($"🤖 exception! {e.Message}");
+            SentrySdk.CaptureException(e);
         }
 
         LogMessage("🤖 exiting...");
+        sentryDisposable?.Dispose();
     }
 
     private static async Task Run(bool authOnly, CancellationToken ct)
@@ -74,7 +93,7 @@ internal class Program
                 "user", CancellationToken.None, tokenStore);
         }
 
-        Console.WriteLine($"Using token store location: {tokenStore.FolderPath}");
+        LogMessage($"Using token store location: {tokenStore.FolderPath}");
 
         if (authOnly)
         {
@@ -266,7 +285,7 @@ internal class Program
         {
             if (!verifyOnly)
             {
-                Console.WriteLine($"{fileName}: reuploading due to hash mismatch. Remote: {uploadedFile.Sha256Checksum}, Local: {hash}");
+                LogMessage($"{fileName}: reuploading due to hash mismatch. Remote: {uploadedFile.Sha256Checksum}, Local: {hash}");
 
                 var uploadTask = await uploadRequest.UploadAsync();
                 if (uploadTask.Status == UploadStatus.Completed)

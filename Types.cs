@@ -15,6 +15,7 @@ namespace ftp_to_gdrive_sync.Types
         public FtpSource[] FtpSources { get; set; }
         public GDrive GDrive { get; set; }
         public Slack Slack { get; set; }
+        public Sentry Sentry { get; set; }
         public string ApplicationName { get; set; }
         public string DownloadPath { get; set; }
     }
@@ -35,5 +36,10 @@ namespace ftp_to_gdrive_sync.Types
     internal class Slack
     {
         public string WebhookUrl { get; set; }
+    }
+
+    internal class Sentry
+    {
+        public string Dsn { get; set; }
     }
 }
