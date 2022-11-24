@@ -1,3 +1,5 @@
+using Serilog.Sinks.Graylog;
+
 namespace ftp_to_gdrive_sync.Types
 {
     internal class ConfirmedFileUpload
@@ -16,6 +18,7 @@ namespace ftp_to_gdrive_sync.Types
         public GDrive GDrive { get; set; }
         public Slack Slack { get; set; }
         public Sentry Sentry { get; set; }
+        public GraylogSinkOptions Graylog { get; set; }
         public string ApplicationName { get; set; }
         public string DownloadPath { get; set; }
     }
@@ -41,5 +44,13 @@ namespace ftp_to_gdrive_sync.Types
     internal class Sentry
     {
         public string Dsn { get; set; }
+    }
+
+    internal class Graylog
+    {
+        public string Host { get; set; }
+        public int Port { get; set; }
+        public Serilog.Sinks.Graylog.Core.Transport.TransportType TransportType { get; set; }
+        public bool UseSsl { get; set; }
     }
 }

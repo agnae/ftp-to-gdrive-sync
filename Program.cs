@@ -11,6 +11,8 @@ using Slack.Webhooks;
 using Microsoft.Extensions.Configuration;
 using ftp_to_gdrive_sync.Types;
 using Sentry;
+using Serilog;
+using Serilog.Sinks.Graylog;
 
 internal class Program
 {
@@ -36,23 +38,37 @@ internal class Program
         if (!string.IsNullOrWhiteSpace(_appSettings.Sentry.Dsn))
         {
             sentryDisposable = SentrySdk.Init(o =>
-                       {
-                           o.Dsn = _appSettings.Sentry.Dsn;
-                           // When configuring for the first time, to see what the SDK is doing:
-                           o.Debug = false;
-                           // Set traces_sample_rate to 1.0 to capture 100% of transactions for performance monitoring.
-                           // We recommend adjusting this value in production.
-                           o.TracesSampleRate = 1.0;
-                           // Enable Global Mode if running in a client app
-                           o.IsGlobalModeEnabled = true;
-                       });
+            {
+                o.Dsn = _appSettings.Sentry.Dsn;
+                // When configuring for the first time, to see what the SDK is doing:
+                o.Debug = false;
+                // Set traces_sample_rate to 1.0 to capture 100% of transactions for performance monitoring.
+                // We recommend adjusting this value in production.
+                o.TracesSampleRate = 1.0;
+                // Enable Global Mode if running in a client app
+                o.IsGlobalModeEnabled = true;
+            });
         }
 
+        var logConfig = new LoggerConfiguration()
+            .MinimumLevel.Debug()
+            .WriteTo.Console();
+
+        if (!string.IsNullOrWhiteSpace(_appSettings.Sentry.Dsn))
+        {
+            logConfig = logConfig.WriteTo.Sentry(dsn: _appSettings.Sentry.Dsn);
+        }
+        if (_appSettings.Graylog != null)
+        {
+            logConfig = logConfig.WriteTo.Graylog(_appSettings.Graylog);
+        }
+
+        Log.Logger = logConfig.CreateLogger();
 
         CancellationTokenSource cts = new CancellationTokenSource();
         Console.CancelKeyPress += (s, e) =>
         {
-            LogMessage("Canceling...");
+            Log.Information("Canceling...");
             cts.Cancel();
             e.Cancel = true;
         };
@@ -66,8 +82,8 @@ internal class Program
             }
         }
 
-        LogMessage("🤖 starting...");
-
+        Log.Information("🤖 starting...");
+        
         try
         {
             Task.Run(async () => await Run(authOnly, cts.Token)).GetAwaiter().GetResult();
@@ -77,7 +93,7 @@ internal class Program
             SentrySdk.CaptureException(e);
         }
 
-        LogMessage("🤖 exiting...");
+        Log.Information("🤖 exiting...");
         sentryDisposable?.Dispose();
     }
 
@@ -93,7 +109,7 @@ internal class Program
                 "user", CancellationToken.None, tokenStore);
         }
 
-        LogMessage($"Using token store location: {tokenStore.FolderPath}");
+        Log.Information($"Using token store location: {tokenStore.FolderPath}");
 
         if (authOnly)
         {
@@ -160,7 +176,7 @@ internal class Program
                             // download if file does not exist
                             if (!System.IO.File.Exists(targetPath))
                             {
-                                LogMessage($"{item.Name}: starting download");
+                                Log.Information($"{item.Name}: starting download");
 
                                 var downloadStatus = ftpClient.DownloadFile(targetPath, sourcePath);
                                 if (downloadStatus == FtpStatus.Success)
@@ -171,12 +187,12 @@ internal class Program
                                 }
                                 else
                                 {
-                                    LogMessage($"{item.Name}: ftp status: {downloadStatus}");
+                                    Log.Information($"{item.Name}: ftp status: {downloadStatus}");
                                 }
                             }
                             else if (new System.IO.FileInfo(targetPath).Length != size) // ... or if filesize is mismatched between local and ftp:/
                             {
-                                LogMessage($"{item.Name}: redownloading due to mismatch in filesizes. Remote: {size}bytes, Local: {new System.IO.FileInfo(targetPath).Length}bytes");
+                                Log.Information($"{item.Name}: redownloading due to mismatch in filesizes. Remote: {size}bytes, Local: {new System.IO.FileInfo(targetPath).Length}bytes");
 
                                 var downloadStatus = ftpClient.DownloadFile(targetPath, sourcePath);
                                 if (downloadStatus == FtpStatus.Success)
@@ -185,7 +201,7 @@ internal class Program
                                 }
                                 else
                                 {
-                                    LogMessage($"{item.Name}: ftp status: {downloadStatus}");
+                                    Log.Information($"{item.Name}: ftp status: {downloadStatus}");
                                 }
                             }
                             else
@@ -271,7 +287,7 @@ internal class Program
         {
             if (!verifyOnly)
             {
-                LogMessage($"{fileName}: starting upload");
+                Log.Information($"{fileName}: starting upload");
                 var uploadTask = await uploadRequest.UploadAsync();
                 if (uploadTask.Status == UploadStatus.Completed)
                 {
@@ -285,7 +301,7 @@ internal class Program
         {
             if (!verifyOnly)
             {
-                LogMessage($"{fileName}: reuploading due to hash mismatch. Remote: {uploadedFile.Sha256Checksum}, Local: {hash}");
+                Log.Information($"{fileName}: reuploading due to hash mismatch. Remote: {uploadedFile.Sha256Checksum}, Local: {hash}");
 
                 var uploadTask = await uploadRequest.UploadAsync();
                 if (uploadTask.Status == UploadStatus.Completed)
@@ -389,11 +405,6 @@ internal class Program
                 Parents = new[] { "appDataFolder" }
             }, stream, "application/json").UploadAsync();
         }
-    }
-
-    private static void LogMessage(string message)
-    {
-        Console.WriteLine(message);
     }
 
     private static void SendSlackMessage(string message)
