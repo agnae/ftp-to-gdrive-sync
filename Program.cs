@@ -281,55 +281,69 @@ internal class Program
 
         var uploadedFile = await FindFile(fileName, dayFolder.Id);
 
-        using var stream = System.IO.File.Open(path, FileMode.Open);
-        var uploadRequest = new FilesResource.CreateMediaUpload(_driveService, new Google.Apis.Drive.v3.Data.File
-        {
-            Name = fileName,
-            Parents = new[] { dayFolder.Id },
-        }, stream, MimeTypeMap.GetMimeType(System.IO.Path.GetExtension(fileName)));
+        bool canVerify = false;
 
-        if (uploadedFile == null)
+        using (var stream = System.IO.File.Open(path, FileMode.Open))
         {
-            if (!verifyOnly)
+            var uploadRequest = new FilesResource.CreateMediaUpload(_driveService, new Google.Apis.Drive.v3.Data.File
             {
-                Log.Information($"{fileName}: starting upload");
-                var uploadTask = await uploadRequest.UploadAsync();
-                if (uploadTask.Status == UploadStatus.Completed)
+                Name = fileName,
+                Parents = new[] { dayFolder.Id },
+            }, stream, MimeTypeMap.GetMimeType(System.IO.Path.GetExtension(fileName)));
+
+            if (uploadedFile == null)
+            {
+                if (!verifyOnly)
                 {
-                    // call uploadfile again to verify upload
-                    uploadTask = await UploadFile(path, fileName, modDate, true);
+                    Log.Information($"{fileName}: starting upload");
+                    var uploadTask = await uploadRequest.UploadAsync();
+                    if (uploadTask.Status == UploadStatus.Completed)
+                    {
+                        canVerify = true;
+                    }
+                    else
+                    {
+                        return uploadTask;
+                    }
                 }
-                return uploadTask;
+            }
+            else if (uploadedFile.Sha256Checksum != hash)
+            {
+                if (!verifyOnly)
+                {
+                    Log.Information($"{fileName}: reuploading due to hash mismatch. Remote: {uploadedFile.Sha256Checksum}, Local: {hash}");
+
+                    var uploadTask = await uploadRequest.UploadAsync();
+                    if (uploadTask.Status == UploadStatus.Completed)
+                    {
+                        canVerify = true;
+                    }
+                    else
+                    {
+                        return uploadTask;
+                    }
+                }
+            }
+            else
+            {
+                AddConfirmedUpload(new ConfirmedFileUpload
+                {
+                    FileName = uploadedFile.Name,
+                    Year = yearFolder.Name,
+                    Month = monthFolder.Name,
+                    Day = dayFolder.Name,
+                    FileSize = uploadedFile.Size.Value,
+                    Hash = uploadedFile.Sha256Checksum
+                });
+
+                SendSlackMessage($"<{uploadedFile.WebViewLink}|{fileName}>: upload completed");
             }
         }
-        else if (uploadedFile.Sha256Checksum != hash)
-        {
-            if (!verifyOnly)
-            {
-                Log.Information($"{fileName}: reuploading due to hash mismatch. Remote: {uploadedFile.Sha256Checksum}, Local: {hash}");
 
-                var uploadTask = await uploadRequest.UploadAsync();
-                if (uploadTask.Status == UploadStatus.Completed)
-                {
-                    // call uploadfile again to verify upload
-                    uploadTask = await UploadFile(path, fileName, modDate, true);
-                }
-                return uploadTask;
-            }
-        }
-        else
+        if (canVerify)
         {
-            AddConfirmedUpload(new ConfirmedFileUpload
-            {
-                FileName = uploadedFile.Name,
-                Year = yearFolder.Name,
-                Month = monthFolder.Name,
-                Day = dayFolder.Name,
-                FileSize = uploadedFile.Size.Value,
-                Hash = uploadedFile.Sha256Checksum
-            });
-
-            SendSlackMessage($"<{uploadedFile.WebViewLink}|{fileName}>: upload completed");
+            // call uploadfile again to verify upload
+            return await UploadFile(path, fileName, modDate, true);
         }
 
         return null;
