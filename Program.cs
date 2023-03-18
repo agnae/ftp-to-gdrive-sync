@@ -132,89 +132,95 @@ internal class Program
             countFilesAttempted = 0;
             foreach (var ftpSource in _appSettings.FtpSources)
             {
-                using var ftpClient = new FtpClient(ftpSource.Host);
-                ftpClient.AutoConnect();
-
-                _confirmedFileUploads = await GetConfirmedUploads();
-
-                foreach (var ftpFolder in ftpSource.Folders)
+                try
                 {
-                    foreach (FtpListItem item in ftpClient.GetListing(ftpFolder))
+                    using var ftpClient = new FtpClient(ftpSource.Host);
+                    ftpClient.AutoConnect();
+
+                    _confirmedFileUploads = await GetConfirmedUploads();
+
+                    foreach (var ftpFolder in ftpSource.Folders)
                     {
-                        if (ct.IsCancellationRequested)
+                        foreach (FtpListItem item in ftpClient.GetListing(ftpFolder))
                         {
-                            return;
-                        }
-
-                        long size = 0L;
-                        if (item.Type == FtpObjectType.File)
-                        {
-                            size = ftpClient.GetFileSize(item.FullName);
-
-                            if (_appSettings.IgnoreDotFiles && item.Name.StartsWith('.'))
+                            if (ct.IsCancellationRequested)
                             {
-                                continue;
+                                return;
                             }
-                        }
 
-                        if (size > 0)
-                        {
-                            DateTime time = item.RawModified;
-
-                            string targetPath = Path.Combine(_appSettings.DownloadPath, item.Name);
-                            string sourcePath = item.FullName;
-
-                            // skip confirmed uploads
-                            if (_confirmedFileUploads.Any(c => c.FileName == item.Name
-                                && c.Year == time.Year.ToString()
-                                && c.Month == time.Month.ToString().PadLeft(2, '0')
-                                && c.Day == time.Day.ToString().PadLeft(2, '0')))
+                            long size = 0L;
+                            if (item.Type == FtpObjectType.File)
                             {
+                                size = ftpClient.GetFileSize(item.FullName);
+
+                                if (_appSettings.IgnoreDotFiles && item.Name.StartsWith('.'))
+                                {
+                                    continue;
+                                }
+                            }
+
+                            if (size > 0)
+                            {
+                                DateTime time = item.RawModified;
+
+                                string targetPath = Path.Combine(_appSettings.DownloadPath, item.Name);
+                                string sourcePath = item.FullName;
+
+                                // skip confirmed uploads
+                                if (_confirmedFileUploads.Any(c => c.FileName == item.Name
+                                    && c.Year == time.Year.ToString()
+                                    && c.Month == time.Month.ToString().PadLeft(2, '0')
+                                    && c.Day == time.Day.ToString().PadLeft(2, '0')))
+                                {
+                                    if (System.IO.File.Exists(targetPath))
+                                    {
+                                        System.IO.File.Delete(targetPath);
+                                    }
+                                    continue;
+                                }
+                                countFilesAttempted++;
+
+                                var downloadStatus = FtpStatus.Success;
+
+                                // download from ftp if file does not exist
+                                if (!System.IO.File.Exists(targetPath))
+                                {
+                                    Log.Information($"{item.Name}: starting download");
+
+                                    downloadStatus = ftpClient.DownloadFile(targetPath, sourcePath);
+                                    if (downloadStatus != FtpStatus.Success)
+                                    {
+                                        Log.Information($"{item.Name}: ftp status: {downloadStatus}");
+                                    }
+                                }
+                                else if (new System.IO.FileInfo(targetPath).Length != size) // ... or if filesize is mismatched between local and ftp:/
+                                {
+                                    Log.Information($"{item.Name}: redownloading due to mismatch in filesizes. Remote: {size}bytes, Local: {new System.IO.FileInfo(targetPath).Length}bytes");
+
+                                    downloadStatus = ftpClient.DownloadFile(targetPath, sourcePath);
+                                    if (downloadStatus != FtpStatus.Success)
+                                    {
+                                        Log.Information($"{item.Name}: ftp status: {downloadStatus}");
+                                    }
+                                }
+
                                 if (System.IO.File.Exists(targetPath))
-                                {
-                                    System.IO.File.Delete(targetPath);
-                                }
-                                continue;
-                            }
-                            countFilesAttempted++;
-
-                            // download if file does not exist
-                            if (!System.IO.File.Exists(targetPath))
-                            {
-                                Log.Information($"{item.Name}: starting download");
-
-                                var downloadStatus = ftpClient.DownloadFile(targetPath, sourcePath);
-                                if (downloadStatus == FtpStatus.Success)
-                                {
-                                    var uploadTask = UploadFile(targetPath, item.Name, time);
-                                    uploads.Add(uploadTask);
-                                    var postUploadVerifyTask = uploadTask.ContinueWith(async _ => await UploadFile(targetPath, item.Name, time));
-                                }
-                                else
-                                {
-                                    Log.Information($"{item.Name}: ftp status: {downloadStatus}");
-                                }
-                            }
-                            else if (new System.IO.FileInfo(targetPath).Length != size) // ... or if filesize is mismatched between local and ftp:/
-                            {
-                                Log.Information($"{item.Name}: redownloading due to mismatch in filesizes. Remote: {size}bytes, Local: {new System.IO.FileInfo(targetPath).Length}bytes");
-
-                                var downloadStatus = ftpClient.DownloadFile(targetPath, sourcePath);
-                                if (downloadStatus == FtpStatus.Success)
                                 {
                                     uploads.Add(UploadFile(targetPath, item.Name, time));
                                 }
                                 else
                                 {
-                                    Log.Information($"{item.Name}: ftp status: {downloadStatus}");
+                                    Log.Warning($"File not found, no action taken: {targetPath}. FTP downloadStatus: {downloadStatus}, Size: {size}");
                                 }
-                            }
-                            else
-                            {
-                                uploads.Add(UploadFile(targetPath, item.Name, time));
                             }
                         }
                     }
+                }
+                catch (System.IO.IOException e)
+                {
+                    SendSlackMessage($"An IO Exception occurred while processing files. Message: {e.Message}. Host: {ftpSource.Host}");
+
+                    throw e;
                 }
             }
 
@@ -291,6 +297,7 @@ internal class Program
                 Parents = new[] { dayFolder.Id },
             }, stream, MimeTypeMap.GetMimeType(System.IO.Path.GetExtension(fileName)));
 
+            // this file does not exist in google drive
             if (uploadedFile == null)
             {
                 if (!verifyOnly)
@@ -307,7 +314,7 @@ internal class Program
                     }
                 }
             }
-            else if (uploadedFile.Sha256Checksum != hash)
+            else if (uploadedFile.Sha256Checksum != hash) // the file exists, but the hash is mismatched (need to reupload)
             {
                 if (!verifyOnly)
                 {
@@ -324,7 +331,7 @@ internal class Program
                     }
                 }
             }
-            else
+            else    // file exists and hash matches
             {
                 AddConfirmedUpload(new ConfirmedFileUpload
                 {
@@ -337,6 +344,18 @@ internal class Program
                 });
 
                 SendSlackMessage($"<{uploadedFile.WebViewLink}|{fileName}>: upload completed");
+
+                try
+                {
+                    if (System.IO.File.Exists(path))
+                    {
+                        System.IO.File.Delete(path);
+                    }
+                }
+                catch (Exception e)
+                {
+                    Log.Warning($"{fileName}: error deleting file: {e.Message}");
+                }
             }
         }
 

@@ -45,7 +45,7 @@ jobs:
           release_name="${{ github.event.repository.name }}-$tag-${{ matrix.target }}"
 
           # Build everything
-          dotnet publish -c release -r "${{ matrix.target }}" --self-contained -o "$release_name"
+          dotnet publish -c release -r "${{ matrix.target }}" -p:PublishSingleFile=true --self-contained true -o "$release_name"
 
           # Pack files
           if [ "${{ matrix.target }}" == "win-x64" ]; then
