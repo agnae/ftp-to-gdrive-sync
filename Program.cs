@@ -74,11 +74,17 @@ internal class Program
         };
 
         var authOnly = false;
+        var skipFtp = false;
         if (args.Length != 0)
         {
             if (args[0].ToUpperInvariant() == "AUTH")
             {
                 authOnly = true;
+            }
+
+            if (args[0].ToUpperInvariant() == "SKIPFTP")
+            {
+                skipFtp = true;
             }
         }
 
@@ -86,7 +92,7 @@ internal class Program
 
         try
         {
-            Task.Run(async () => await Run(authOnly, cts.Token)).GetAwaiter().GetResult();
+            Task.Run(async () => await Run(authOnly, skipFtp, cts.Token)).GetAwaiter().GetResult();
         }
         catch (Exception e)
         {
@@ -97,7 +103,7 @@ internal class Program
         sentryDisposable?.Dispose();
     }
 
-    private static async Task Run(bool authOnly, CancellationToken ct)
+    private static async Task Run(bool authOnly, bool skipFtp, CancellationToken ct)
     {
         UserCredential credential;
         var tokenStore = new FileDataStore(_appSettings.GDrive.TokenDataStorePath);
@@ -182,29 +188,39 @@ internal class Program
 
                                 var downloadStatus = FtpStatus.Success;
 
-                                // download from ftp if file does not exist
-                                if (!System.IO.File.Exists(targetPath))
+                                if (!skipFtp)
                                 {
-                                    Log.Information($"{item.Name}: starting download");
-
-                                    downloadStatus = ftpClient.DownloadFile(targetPath, sourcePath);
-                                    if (downloadStatus != FtpStatus.Success)
+                                    // download from ftp if file does not exist
+                                    if (!System.IO.File.Exists(targetPath))
                                     {
-                                        Log.Information($"{item.Name}: ftp status: {downloadStatus}");
+                                        Log.Information($"{item.Name}: starting download");
+
+                                        downloadStatus = ftpClient.DownloadFile(targetPath, sourcePath);
+                                        if (downloadStatus != FtpStatus.Success)
+                                        {
+                                            Log.Information($"{item.Name}: ftp status: {downloadStatus}");
+                                        }
+                                    }
+                                    else if (new System.IO.FileInfo(targetPath).Length != size) // ... or if filesize is mismatched between local and ftp:/
+                                    {
+                                        Log.Information($"{item.Name}: redownloading due to mismatch in filesizes. Remote: {size}bytes, Local: {new System.IO.FileInfo(targetPath).Length}bytes");
+
+                                        downloadStatus = ftpClient.DownloadFile(targetPath, sourcePath);
+                                        if (downloadStatus != FtpStatus.Success)
+                                        {
+                                            Log.Information($"{item.Name}: ftp status: {downloadStatus}");
+                                        }
                                     }
                                 }
-                                else if (new System.IO.FileInfo(targetPath).Length != size) // ... or if filesize is mismatched between local and ftp:/
+                                else if (new System.IO.FileInfo(targetPath).Length != size)
                                 {
-                                    Log.Information($"{item.Name}: redownloading due to mismatch in filesizes. Remote: {size}bytes, Local: {new System.IO.FileInfo(targetPath).Length}bytes");
+                                    Log.Information($"{item.Name}: skipping ftp download setting is active: skipping upload of local file due to mismatch in filesizes. Remote: {size}bytes, Local: {new System.IO.FileInfo(targetPath).Length}bytes");
 
-                                    downloadStatus = ftpClient.DownloadFile(targetPath, sourcePath);
-                                    if (downloadStatus != FtpStatus.Success)
-                                    {
-                                        Log.Information($"{item.Name}: ftp status: {downloadStatus}");
-                                    }
+                                    continue;
                                 }
 
-                                if (System.IO.File.Exists(targetPath))
+
+                                if (downloadStatus == FtpStatus.Success && System.IO.File.Exists(targetPath))
                                 {
                                     uploads.Add(UploadFile(targetPath, item.Name, time));
                                 }
