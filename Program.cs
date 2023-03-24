@@ -212,7 +212,7 @@ internal class Program
                                         }
                                     }
                                 }
-                                else if (new System.IO.FileInfo(targetPath).Length != size)
+                                else if (System.IO.File.Exists(targetPath) && new System.IO.FileInfo(targetPath).Length != size)
                                 {
                                     Log.Information($"{item.Name}: skipping ftp download setting is active: skipping upload of local file due to mismatch in filesizes. Remote: {size}bytes, Local: {new System.IO.FileInfo(targetPath).Length}bytes");
 
