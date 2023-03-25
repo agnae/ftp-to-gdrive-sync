@@ -169,7 +169,7 @@ internal class Program
                             {
                                 DateTime time = item.RawModified;
 
-                                string targetPath = Path.Combine(_appSettings.DownloadPath, item.Name);
+                                string targetPath = Path.Combine(_appSettings.DownloadPath, ftpSource.Host, ftpFolder, item.Name);
                                 string sourcePath = item.FullName;
 
                                 // skip confirmed uploads
@@ -218,7 +218,6 @@ internal class Program
 
                                     continue;
                                 }
-
 
                                 if (downloadStatus == FtpStatus.Success && System.IO.File.Exists(targetPath))
                                 {
@@ -304,6 +303,7 @@ internal class Program
         var uploadedFile = await FindFile(fileName, dayFolder.Id);
 
         bool canVerify = false;
+        bool canDelete = false;
 
         using (var stream = System.IO.File.Open(path, FileMode.Open))
         {
@@ -360,18 +360,8 @@ internal class Program
                 });
 
                 SendSlackMessage($"<{uploadedFile.WebViewLink}|{fileName}>: upload completed");
-
-                try
-                {
-                    if (System.IO.File.Exists(path))
-                    {
-                        System.IO.File.Delete(path);
-                    }
-                }
-                catch (Exception e)
-                {
-                    Log.Warning($"{fileName}: error deleting file: {e.Message}");
-                }
+                
+                canDelete = true;
             }
         }
 
@@ -379,6 +369,21 @@ internal class Program
         {
             // call uploadfile again to verify upload
             return await UploadFile(path, fileName, modDate, true);
+        }
+
+        if (canDelete)
+        {
+            try
+            {
+                if (System.IO.File.Exists(path))
+                {
+                    System.IO.File.Delete(path);
+                }
+            }
+            catch (Exception e)
+            {
+                Log.Warning($"{fileName}: error deleting file: {e.Message}");
+            }
         }
 
         return null;
