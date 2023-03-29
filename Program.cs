@@ -13,6 +13,7 @@ using ftp_to_gdrive_sync.Types;
 using Sentry;
 using Serilog;
 using Serilog.Sinks.Graylog;
+using System.Text;
 
 internal class Program
 {
@@ -143,7 +144,7 @@ internal class Program
                     using var ftpClient = new FtpClient(ftpSource.Host);
                     ftpClient.AutoConnect();
 
-                    _confirmedFileUploads = await GetConfirmedUploads();
+                    _confirmedFileUploads = await GetConfirmedUploads(true);
 
                     foreach (var ftpFolder in ftpSource.Folders)
                     {
@@ -360,7 +361,7 @@ internal class Program
                 });
 
                 SendSlackMessage($"<{uploadedFile.WebViewLink}|{fileName}>: upload completed");
-                
+
                 canDelete = true;
             }
         }
@@ -407,7 +408,7 @@ internal class Program
         return file;
     }
 
-    private static async Task<List<ConfirmedFileUpload>> GetConfirmedUploads()
+    private static async Task<List<ConfirmedFileUpload>> GetConfirmedUploads(bool generateReport = false)
     {
         var result = new List<ConfirmedFileUpload>();
         var listFilesRequest = _driveService.Files.List();
@@ -423,6 +424,39 @@ internal class Program
             var downloaded = await _driveService.Files.Get(file.Id).DownloadAsync(stream);
             stream.Position = 0; // rewind!!!
             result = await JsonSerializer.DeserializeAsync<List<ConfirmedFileUpload>>(stream);
+        }
+        
+        if (generateReport)
+        {
+            // generate report of each ConfirmedFileUpload in the list, result
+            // group by year, month, day          
+            var report = result.GroupBy(x => new { x.Year, x.Month, x.Day })
+                .Select(x => new
+                {
+                    Year = x.Key.Year,
+                    Month = x.Key.Month,
+                    Day = x.Key.Day,
+                    Files = x.Select(y => new
+                    {
+                        FileName = y.FileName,
+                        FileSize = y.FileSize,
+                        Hash = y.Hash
+                    })
+                });
+
+            // write report to tab delimited string
+            var sb = new StringBuilder();
+            sb.AppendLine("Confirmed Uploads Report");
+            sb.AppendLine("Year\tMonth\tDay\tFileName\tFileSize\tHash");
+            foreach (var r in report)
+            {
+                foreach (var f in r.Files)
+                {
+                    sb.AppendLine($"{r.Year}\t{r.Month}\t{r.Day}\t{f.FileName}\t{f.FileSize}\t{f.Hash}");
+                }
+            }
+
+            Log.Information(sb.ToString());
         }
 
         return result;
